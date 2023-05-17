@@ -52,6 +52,7 @@
     };
   
   let spokenText = '';
+  let resumeTimer = null 
   
   function speak(text) {
     spokenText += ' ' + text;
@@ -63,7 +64,19 @@
     utterance.rate = 1.1; // Change this value to adjust the speech rate
     utterance.voice = getBestVoice();
     console.log('Starting to speak:', text);
+    speechSynthesis.cancel();
+    clearInterval(resumeTimer)
     speechSynthesis.speak(utterance);
+    resumeTimer = setInterval(() => {
+      console.log(speechSynthesis.speaking);
+      if (!speechSynthesis.speaking) {
+        clearInterval(resumeTimer);
+      } else {
+        console.log("Resuming Speech...");
+        speechSynthesis.pause();
+        speechSynthesis.resume();
+      }
+    }, 14000);
   }
   
   function speakNotRepeated(newText) {
@@ -183,7 +196,8 @@
   
         var checkSpeechEnd = () => {
           if (isSpeechOngoing()) {
-            setTimeout(checkSpeechEnd, 100);
+            console.log("Waiting for Speech to end...")
+            setTimeout(checkSpeechEnd, 1000);
           } else {
             console.log("Done Speaking: "+ speakQueue.length +" items left in queue")
             isSpeaking = false;
