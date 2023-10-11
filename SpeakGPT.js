@@ -7,7 +7,12 @@
     var targetSelector = '.prose > *';
     var speakQueue = [];
     var isSpeaking = false;
-  
+ 
+    // Define your reference and count at the start of your script.
+    var firstConversationItem = document.querySelector(targetSelector);
+    var conversationCount = document.querySelectorAll(targetSelector).length;
+    var ignoreEventsUntil = null;
+
     var getBestVoice = () => {
       var voices = window.speechSynthesis.getVoices();
       var preferredVoices = [
@@ -242,8 +247,7 @@
         // var targetElement = element.parentElement === proseParent ? element : element.closest('.prose > *');
         // console.log(`New node detected [not parent = ${targetElement === element}]:`, targetElement);
         var targetElement = element
-        var text = targetElement.innerText;
-        if (targetElement.tagName.toLowerCase() === 'pre') text = 'skip, code block here.'
+        var text = scrubConversationContent(element);
   
         var version = typeof targetElement.__version === "undefined" ? 0 : targetElement.__version;
         targetElement.__version = version + 1;
@@ -251,11 +255,32 @@
         observeElement(targetElement);
       }
     };
+
+    var detectAndWaitIfConversationSwitched = () => {
+      if (ignoreEventsUntil !== null && ignoreEventsUntil > Date.now()) { return true; }
+      else { ignoreEventsUntil = null; } 
+
+      // If we have detected that the conversation has changed (i.e. the first conversation item has changed)
+      var newFirstConversationItem = document.querySelector(targetSelector);
+      var newConversationCount = document.querySelectorAll(targetSelector).length;
+      if (newFirstConversationItem !== firstConversationItem && (newConversationCount < conversationCount || newConversationCount == 0 || newConversationCount > 2)) {
+        console.log('Conversation has changed, resetting');
+        firstConversationItem = newFirstConversationItem;
+        conversationCount = newConversationCount;
+        speakQueue = [];
+        isSpeaking = false;
+        // stop speaking, if a read is in progress
+        window.speechSynthesis.cancel();
+        ignoreEventsUntil = Date.now() + 2000;
+        return true;
+      }
+
+      return false;
+    }
   
     var handleChangedElement = (element) => {
       console.log('Changed element detected:', element);
-      var text = element.innerText;
-        if (element.tagName.toLowerCase() === 'pre') text = 'skip, code block here.'
+      var text = scrubConversationContent(element);
       var version = typeof element.__version === "undefined" ? 0 : element.__version;
       element.__version = version + 1;
       element.__read = false
@@ -264,6 +289,7 @@
   
     var observeElement = (element) => {
       var elementObserver = new MutationObserver((mutations) => {
+        if ( detectAndWaitIfConversationSwitched() ) { return; }
         mutations.forEach((mutation) => {
           if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
             mutation.addedNodes.forEach((node) => {
@@ -286,6 +312,7 @@
     };
   
     var observer = new MutationObserver((mutations) => {
+      if ( detectAndWaitIfConversationSwitched() ) { return; }
       mutations.forEach((mutation) => {
         if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
           mutation.addedNodes.forEach((node) => {
@@ -302,44 +329,91 @@
   
     observer.observe(document.body, { childList: true, subtree: true });
   
-  
+    
+    ////////////////////////////
+    ///  Stop and Repeat Buttons
+
     function stopSpeaking() {
       window.speechSynthesis.cancel();
       speakQueue = [];
     }
-  
-    function createStopButton() {
-      const stopButton = document.createElement('button');
-      stopButton.textContent = 'Stop';
-      stopButton.style.color = 'red';
-      stopButton.style.position = 'fixed';
-      stopButton.style.right = '10px';
-      stopButton.style.top = '50%';
-      stopButton.style.zIndex = 1000;
-      stopButton.style.backgroundColor = '#fff';
-      stopButton.style.border = '1px solid #000';
-      stopButton.style.borderRadius = '4px';
-      stopButton.style.padding = '4px 8px';
-      stopButton.style.fontSize = '14px';
-      stopButton.style.cursor = 'pointer';
-      stopButton.addEventListener('click', stopSpeaking);
-  
-      document.body.appendChild(stopButton);
-      return stopButton;
+
+    function scrubConversationContent(element) {
+      var text = element.innerText;
+      if (element.tagName.toLowerCase() === 'pre') text = 'skip, code block here.'
+      return text;
     }
-  
-    function removeStopButton(stopButton) {
-      if (stopButton && stopButton.parentNode) {
-        stopButton.parentNode.removeChild(stopButton);
+
+    function repeatLastResponse() {
+      stopSpeaking();
+      spokenText = '';
+      var lastResponse = Array.from(document.querySelectorAll('.prose')).pop();
+      if (lastResponse) {
+        var innerElements = Array.from(lastResponse.querySelectorAll('*'));
+        innerElements.forEach((element, index) => {
+          var text = scrubConversationContent(element);
+          console.log(`Repeating: ${text}`);
+          var version = typeof element.__version === "undefined" ? 0 : element.__version;
+          element.__version = version + 1;
+          element.__read = false
+          addToSpeakQueue(text, element, version + 1);
+        });
+      } else {
+        console.log("No previous response found");
       }
     }
-  
-    // Remove the current stop button (if any) and create a new one when the bookmarklet is run
-    if (window.currentStopButton) {
-      removeStopButton(window.currentStopButton);
+
+    function createButton(textContent, textColor, clickHandler) {
+      const button = document.createElement('button');
+      button.textContent = textContent;
+      button.style.color = textColor;
+      button.style.position = 'fixed';
+      button.style.right = '10px';
+      button.style.top = '50%';
+      button.style.zIndex = 1000;
+      button.style.backgroundColor = '#fff';
+      button.style.border = '1px solid #000';
+      button.style.borderRadius = '4px';
+      button.style.padding = '4px 8px';
+      button.style.fontSize = '14px';
+      button.style.cursor = 'pointer';
+      button.addEventListener('click', clickHandler);
+    
+      return button;
     }
-    window.currentStopButton = createStopButton();
-  
+
+    function createButtons() {
+      const stopButton = createButton('Stop', 'red', stopSpeaking);
+      const repeatButton = createButton('Repeat', 'blue', repeatLastResponse);
+
+
+      document.body.appendChild(stopButton);
+      document.body.appendChild(repeatButton);
+      setTimeout(() => {
+        let parentHeight = stopButton.parentElement.offsetHeight;
+        let stopButtonTopPercentage = parseFloat(stopButton.style.top); // Assuming it's a percentage
+        let stopButtonTopPixels = (stopButtonTopPercentage / 100) * parentHeight;
+        
+        repeatButton.style.top = (stopButtonTopPixels + 50) + 'px';
+      }, 500)
+
+      return [stopButton, repeatButton];
+    }
+
+    function removeButtons(buttons) {
+      buttons.forEach((button) => {
+        if (button && button.parentNode) {
+          button.parentNode.removeChild(button);
+        }
+      });
+    }
+
+    // Remove the current buttons (if any) and create new ones when the bookmarklet is run
+    if (window.currentButtons) {
+      removeButtons(window.currentButtons);
+    }
+    window.currentButtons = createButtons();
+      
     setTimeout(() => { speak("Speak GPT now enabled") }, 500)
   
     window.__myBookmarkletObserver = observer;
