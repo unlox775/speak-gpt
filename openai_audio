@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+
+import openai
+import os
+import pyperclip
+import pygame
+
+your_openai_key = os.environ.get('OPENAI_KEY', '')  # Replace with your OpenAI API key
+your_text = pyperclip.paste()  # Read the current clipboard content
+
+client = openai.OpenAI(api_key=your_openai_key)
+
+response = client.audio.speech.create(
+  model="tts-1",
+  voice="shimmer",  # other voices: 'cove', 'echo', 'fable', 'onyx', 'nova', 'shimmer'
+  input=your_text
+)
+
+response.stream_to_file('speech.mp3')
+
+pygame.mixer.init()
+pygame.mixer.music.load('speech.mp3')
+pygame.mixer.music.play()
+while pygame.mixer.music.get_busy():
+    continue

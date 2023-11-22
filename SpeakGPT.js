@@ -183,7 +183,7 @@
         return;
       }
   
-      if ( (!element.__shortWaited || element.__shortWaited < 3) && text.length < 30 ) {
+      if ( (!element.__shortWaited || element.__shortWaited < 3) && text.length < 30 && speakQueue.length == 1 ) {
         console.log("Too Short, wait a second... ["+ text +"]")
         console.log(element)
         console.log(element.parentElement)
@@ -349,7 +349,8 @@
       spokenText = '';
       var lastResponse = Array.from(document.querySelectorAll('.prose')).pop();
       if (lastResponse) {
-        var innerElements = Array.from(lastResponse.querySelectorAll('*'));
+        // Get array of only the immediate children of the last response
+        var innerElements = Array.from(lastResponse.children);
         innerElements.forEach((element, index) => {
           var text = scrubConversationContent(element);
           console.log(`Repeating: ${text}`);
