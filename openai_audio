@@ -4,6 +4,8 @@ import openai
 import os
 import pyperclip
 import pygame
+from pydub import AudioSegment
+from pydub.playback import play
 
 your_openai_key = os.environ.get('OPENAI_KEY', '')  # Replace with your OpenAI API key
 your_text = pyperclip.paste()  # Read the current clipboard content
@@ -18,8 +20,9 @@ response = client.audio.speech.create(
 
 response.stream_to_file('speech.mp3')
 
-pygame.mixer.init()
-pygame.mixer.music.load('speech.mp3')
-pygame.mixer.music.play()
-while pygame.mixer.music.get_busy():
-    continue
+# Change the playback speed using pydub
+sound = AudioSegment.from_file('speech.mp3')
+speed_changed_sound = sound.speedup(playback_speed=1.5, chunk_size=150, crossfade=25)
+
+# Play the altered audio
+play(speed_changed_sound)

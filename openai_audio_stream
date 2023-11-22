@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+
+import queue
+import threading
+import openai
+import pydub
+import miniaudio
+import pyaudio
+import threading
+
+class StreamBuffer:
+    def __init__(self):
+        self.data_queue = queue.Queue()
+        self.finished = False
+
+    def write(self, data):
+        """Write data to the queue."""
+        self.data_queue.put(data)
+
+    def read(self):
+        """Read data from the queue."""
+        return self.data_queue.get()
+
+    def close(self):
+        """Indicate that the streaming is complete."""
+        self.finished = True
+
+# Instantiate the buffer
+buffer = StreamBuffer()
+
+# Start OpenAI TTS API call in a separate thread
+def producer():
+    response = client.audio.speech.create(
+      model="tts-1",
+      voice="shimmer",
+      input=your_text,
+      file=buffer  # Using the buffer as the file-like object
+    )
+    buffer.close()
+
+producer_thread = threading.Thread(target=producer)
+producer_thread.start()
+
+
+
+def audio_consumer(buffer):
+    p = pyaudio.PyAudio()
+    stream = p.open(format=pyaudio.paInt16,  # This might vary depending on the format of your audio
+                    channels=2,
+                    rate=44100,
+                    output=True)
+
+    while not buffer.finished or not buffer.data_queue.empty():
+        audio_data = buffer.read()
+        stream.write(audio_data)
+
+    stream.stop_stream()
+    stream.close()
+    p.terminate()
+
+# Assuming buffer is the instance of StreamBuffer
+audio_consumer_thread = threading.Thread(target=audio_consumer, args=(buffer,))
+audio_consumer_thread.start()
