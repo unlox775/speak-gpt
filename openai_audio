@@ -3,26 +3,82 @@
 import openai
 import os
 import pyperclip
-import pygame
+import threading
+import queue
 from pydub import AudioSegment
 from pydub.playback import play
 
-your_openai_key = os.environ.get('OPENAI_KEY', '')  # Replace with your OpenAI API key
-your_text = pyperclip.paste()  # Read the current clipboard content
+def chunk_text(text, max_length=4096):
+    """
+    Splits the text into chunks where each chunk is at most `max_length` characters long,
+    and tries to avoid breaking in the middle of a word.
+    """
+    print(f"Chunking text of length {len(text)} into chunks of max length {max_length}")
 
-client = openai.OpenAI(api_key=your_openai_key)
+    if len(text) <= max_length:
+        return [text]
+    
+    # Find the last whitespace character before the max_length
+    last_space = text.rfind(' ', 0, max_length)
+    # If no space found, force split at max_length
+    if last_space == -1:
+        last_space = max_length
+    # Try to find the last sentence ending punctuation before the last space
+    last_punct = max(text.rfind(char, 0, last_space) for char in '.!?')
+    # If no punctuation found, use the position of the last space
+    if last_punct == -1:
+        split_pos = last_space
+    else:
+        split_pos = last_punct + 1  # Include the punctuation in the chunk
 
-response = client.audio.speech.create(
-  model="tts-1",
-  voice="shimmer",  # other voices: 'cove', 'echo', 'fable', 'onyx', 'nova', 'shimmer'
-  input=your_text
-)
+    return [text[:split_pos]] + chunk_text(text[split_pos:], max_length)
 
-response.stream_to_file('speech.mp3')
+def generate_speech_from_chunks(client, chunks, queue, voice="onyx"):
+    for chunk_num, chunk in enumerate(chunks, start=1):
+        print(f"Generating speech for chunk {chunk_num} of length {len(chunk)}")
+        response = client.audio.speech.create(
+            model="tts-1",
+            voice=voice,  
+            input=chunk
+        )
+        file_path = f'speech_{chunk_num}.mp3'
+        response.stream_to_file(file_path)
+        queue.put(file_path)
 
-# Change the playback speed using pydub
-sound = AudioSegment.from_file('speech.mp3')
-speed_changed_sound = sound.speedup(playback_speed=1.5, chunk_size=150, crossfade=25)
+def play_audio_from_queue(queue):
+    while True:
+        file_path = queue.get()
+        if file_path is None:
+            break  # None is the signal to stop
+        print(f"Playing {file_path}")
+        sound = AudioSegment.from_file(file_path)
+        speed_changed_sound = sound.speedup(playback_speed=1.3, chunk_size=150, crossfade=25)
+        play(speed_changed_sound)
+        os.remove(file_path)  # Optionally remove the file after playing
 
-# Play the altered audio
-play(speed_changed_sound)
+if __name__ == "__main__":
+    your_openai_key = os.environ.get('OPENAI_KEY', '')
+    your_text = pyperclip.paste()
+    
+    client = openai.OpenAI(api_key=your_openai_key)
+    
+    chunks = chunk_text(your_text, 4096)
+    audio_queue = queue.Queue()
+    
+    # Creating threads
+    generator_thread = threading.Thread(target=generate_speech_from_chunks, args=(client, chunks, audio_queue, "onyx"))
+    player_thread = threading.Thread(target=play_audio_from_queue, args=(audio_queue,))
+    
+    # Starting threads
+    generator_thread.start()
+    player_thread.start()
+    
+    # Waiting for the generator thread to finish
+    generator_thread.join()
+    
+    # Sending the signal to stop the player thread
+    audio_queue.put(None)
+    
+    # Waiting for the player thread to finish
+    player_thread.join()
+
